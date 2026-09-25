@@ -1,0 +1,12 @@
+// Copy this file to Local.xcconfig (same folder) and fill in your own
+// values. Local.xcconfig is gitignored, so your values never get committed.
+
+// Your Apple Developer Team ID (Xcode > Settings > Accounts, or the
+// Membership Details page on developer.apple.com). Leave blank to build
+// unsigned or pick a team from Xcode's Signing & Capabilities tab instead.
+DEVELOPMENT_TEAM = YOUR_TEAM_ID
+
+// Bundle identifier prefix. The three targets become
+// <prefix>.MeetingRecorder, <prefix>.MeetingRecorderTests and
+// <prefix>.MeetingRecorderUITests.
+MEETING_RECORDER_BUNDLE_ID_PREFIX = com.yourname

@@ -1,0 +1,39 @@
+# macOS
+.DS_Store
+
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+*.xcuserdatad/
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# CocoaPods / Carthage (if used)
+Pods/
+Carthage/Build/
+
+# Personal Team ID / bundle ID (copy Configuration/Local.xcconfig.example to use)
+MeetingRecorder/Configuration/Local.xcconfig
+
+# Recorded material (never committed to the repository)
+recordings/
+
+# Python (postprocess/)
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+# Hugging Face / MLX model cache (large, downloaded)
+.cache/

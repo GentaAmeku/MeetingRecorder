@@ -1,0 +1,28 @@
+[project]
+name = "postprocess"
+version = "0.1.0"
+description = "Post-processing CLI that turns a recording session (mic.wav / system.wav / metadata.json) into a transcript that tells you and the other side apart"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "mlx-whisper>=0.4.3",
+    "numpy>=2.4.6",
+    # sherpa-onnx ships its native code in sherpa-onnx-core (bundling the onnxruntime dylib).
+    # uv does not pull that package in automatically and can drop it on sync, so pin it explicitly.
+    "sherpa-onnx>=1.10.0",
+    "sherpa-onnx-core>=1.10.0",
+    "silero-vad>=6.2.1",
+    "soundfile>=0.14.0",
+]
+
+[project.scripts]
+postprocess = "postprocess:main"
+
+[build-system]
+requires = ["uv_build>=0.11.21,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]

@@ -1,0 +1,24 @@
+// Shared build settings, checked into git.
+//
+// DEVELOPMENT_TEAM and the bundle identifier prefix live here so the Xcode
+// project file itself never carries a personal Team ID or bundle ID.
+//
+// To build with your own Apple Developer account, copy
+// Local.xcconfig.example to Local.xcconfig (same folder) and fill in your
+// values. Local.xcconfig is gitignored, so nothing you put there is
+// committed. Without a Local.xcconfig, this builds with an empty team (you
+// pick one in Xcode's Signing & Capabilities, or build unsigned) and the
+// placeholder bundle ID prefix below.
+
+DEVELOPMENT_TEAM =
+MEETING_RECORDER_BUNDLE_ID_PREFIX = com.example
+
+// Absolute path to the postprocess CLI (postprocess/.venv/bin/postprocess).
+// Empty by default so no personal path is committed; scripts/install_app.sh
+// passes this on the xcodebuild command line, which overrides this value,
+// and Info.plist reads it from there (see CLILocator.swift). Never set your
+// own path here or in Local.xcconfig — install_app.sh computes it fresh
+// every run from this repo's own postprocess/.venv.
+POSTPROCESS_CLI_PATH =
+
+#include? "Local.xcconfig"

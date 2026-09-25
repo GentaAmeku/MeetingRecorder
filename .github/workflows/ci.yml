@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  swift:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      # The project uses Xcode 26 build settings (default actor isolation etc.)
+      # and a macOS 15.6 deployment target, so build with the newest stable
+      # Xcode on the runner rather than the image default (Xcode 16.4, whose
+      # SDK is older than the deployment target). See runner-images'
+      # macos-15-Readme.md for the Xcode versions each image ships.
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Build (unsigned)
+        working-directory: MeetingRecorder
+        run: |
+          xcodebuild build \
+            -project MeetingRecorder.xcodeproj \
+            -scheme MeetingRecorder \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Unit tests (unsigned)
+        working-directory: MeetingRecorder
+        run: |
+          xcodebuild test \
+            -project MeetingRecorder.xcodeproj \
+            -scheme MeetingRecorder \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -only-testing:MeetingRecorderTests \
+            CODE_SIGNING_ALLOWED=NO
+        # MeetingRecorderUITests is intentionally excluded: it needs a real
+        # logged-in GUI session and hangs on a headless runner.
+
+  postprocess:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install dependencies
+        working-directory: postprocess
+        run: uv sync
+
+      - name: Run tests
+        working-directory: postprocess
+        run: uv run pytest
+
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scan for secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

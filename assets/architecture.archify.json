@@ -1,0 +1,259 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "How MeetingRecorder works",
+    "locale": "en",
+    "quality_profile": "showcase"
+  },
+  "components": [
+    {
+      "id": "oncue",
+      "type": "external",
+      "label": "OnCue",
+      "sublabel": "optional launcher",
+      "pos": [
+        40,
+        80
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "app",
+      "type": "frontend",
+      "label": "MeetingRecorder",
+      "sublabel": "menu bar + window",
+      "pos": [
+        290,
+        80
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "capture",
+      "type": "backend",
+      "label": "ScreenCaptureKit",
+      "sublabel": "mic + system audio",
+      "pos": [
+        290,
+        280
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "wav",
+      "type": "database",
+      "label": "mic.wav · system.wav",
+      "sublabel": "session folder",
+      "pos": [
+        540,
+        280
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "cli",
+      "type": "backend",
+      "label": "postprocess CLI",
+      "sublabel": "Python (uv)",
+      "pos": [
+        790,
+        280
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "transcript",
+      "type": "database",
+      "label": "transcript.md · .json",
+      "sublabel": "+ index.json",
+      "pos": [
+        1040,
+        280
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "whisper",
+      "type": "backend",
+      "label": "MLX Whisper",
+      "sublabel": "local transcription",
+      "pos": [
+        640,
+        470
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "diarize",
+      "type": "backend",
+      "label": "sherpa-onnx",
+      "sublabel": "who spoke when",
+      "pos": [
+        840,
+        470
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "config",
+      "type": "database",
+      "label": "postprocess-config.json",
+      "sublabel": "language · speaker names",
+      "pos": [
+        790,
+        80
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "agent",
+      "type": "external",
+      "label": "Claude Code · Codex",
+      "sublabel": "via Orca or Terminal",
+      "pos": [
+        1040,
+        660
+      ],
+      "size": [
+        150,
+        64
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Stays on your Mac",
+      "wraps": [
+        "app",
+        "capture",
+        "wav",
+        "cli",
+        "transcript",
+        "whisper",
+        "diarize",
+        "config"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "prefill",
+      "from": "oncue",
+      "to": "app",
+      "label": "title · counterpart",
+      "variant": "dashed"
+    },
+    {
+      "id": "record",
+      "from": "app",
+      "to": "capture",
+      "label": "Start / Stop",
+      "labelDy": 24
+    },
+    {
+      "id": "tracks",
+      "from": "capture",
+      "to": "wav",
+      "label": "two tracks",
+      "variant": "emphasis"
+    },
+    {
+      "id": "after-stop",
+      "from": "wav",
+      "to": "cli",
+      "label": "after Stop",
+      "variant": "emphasis"
+    },
+    {
+      "id": "settings",
+      "from": "config",
+      "to": "cli",
+      "variant": "dashed"
+    },
+    {
+      "id": "asr",
+      "from": "cli",
+      "to": "whisper",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "speakers",
+      "from": "cli",
+      "to": "diarize",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "write",
+      "from": "cli",
+      "to": "transcript",
+      "label": "Me · Other A",
+      "variant": "emphasis"
+    },
+    {
+      "id": "handoff",
+      "from": "transcript",
+      "to": "agent",
+      "label": "file path",
+      "variant": "dashed",
+      "labelDy": 24
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Record",
+      "items": [
+        "Mic and meeting audio as separate WAV tracks",
+        "Meeting name and counterpart can come from OnCue"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Transcribe locally",
+      "items": [
+        "MLX Whisper and sherpa-onnx run on Apple silicon",
+        "Me / Other A / Other B speaker labels",
+        "Source audio is deleted once the transcript is saved"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Optional handoff",
+      "items": [
+        "Claude Code or Codex opens with your prompt",
+        "The agent sends what it reads to its provider's cloud"
+      ]
+    }
+  ]
+}
