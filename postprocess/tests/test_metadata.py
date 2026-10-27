@@ -36,3 +36,11 @@ def test_old_schema_without_counterpart_defaults_empty(tmp_path):
     })
     meta = load_session_meta(d)
     assert meta.counterpart_name == ""
+
+
+def test_meeting_hint_terms_are_the_name_then_the_title():
+    from postprocess.metadata import SessionMeta, meeting_hint_terms
+
+    meta = SessionMeta(started_at="", duration_sec=0, mic_device_name="", title=" 週次定例 ", counterpart_name="田中")
+    assert meeting_hint_terms(meta) == ["田中", "週次定例"]
+    assert meeting_hint_terms(SessionMeta(started_at="", duration_sec=0, mic_device_name="")) == []

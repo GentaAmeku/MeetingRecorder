@@ -32,7 +32,7 @@ from .config import DEFAULT_OTHER_NAME, DEFAULT_SELF_NAME, load_config, normaliz
 from .diarize import DEFAULT_CLUSTER_THRESHOLD, DEFAULT_MODEL_DIR, diarize_system
 from .dictionary import Dictionary, load_dictionary, select_hints
 from .index import write_index
-from .metadata import load_session_meta
+from .metadata import load_session_meta, meeting_hint_terms
 from .render import render_json, render_markdown
 from .segments import Segment
 from .shaping import Shaper
@@ -63,9 +63,13 @@ def process_session(
     """Processes one session and writes out transcript.md / transcript.json."""
 
     meta = load_session_meta(session_dir)
-    # The dictionary's words go to Whisper as a prompt, so it writes them the
-    # way they are spelled (Claude Code, not クロードコード).
-    prompt = whisper_prompt(select_hints(dictionary, datetime.now().astimezone())) if dictionary else None
+    # The counterpart's name, the meeting title and the dictionary's words go
+    # to Whisper as a prompt, so it writes them the way they are spelled
+    # (Claude Code, not クロードコード).
+    hint_terms = meeting_hint_terms(meta)
+    if dictionary:
+        hint_terms += select_hints(dictionary, datetime.now().astimezone())
+    prompt = whisper_prompt(hint_terms)
 
     mic_wav = session_dir / "mic.wav"
     mic: list[Segment] = (

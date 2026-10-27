@@ -29,6 +29,28 @@ _MAX_COMPRESSION_RATIO = 2.4
 # Whisper keeps at most 223 tokens of prompt text. Stay inside it with room to spare.
 MAX_PROMPT_TOKENS = 200
 
+# Lines Whisper is known to invent for silence or noise (picked up from video
+# subtitles in its training data). A segment that is exactly one of these is
+# dropped even when its confidence numbers look fine: a 2-second silence
+# comes back as 「ご視聴ありがとうございました」 with no_speech_prob below the guard.
+_STOCK_PHRASES = {
+    "ご視聴ありがとうございました",
+    "ご視聴ありがとうございます",
+    "最後までご視聴ありがとうございました",
+    "最後までご視聴いただきありがとうございました",
+    "チャンネル登録お願いします",
+    "チャンネル登録よろしくお願いします",
+    "チャンネル登録をお願いします",
+    "チャンネル登録をお願いいたします",
+    "チャンネル登録よろしくお願いいたします",
+    "次回もお楽しみに",
+    "thank you for watching",
+    "thanks for watching",
+    "please subscribe",
+    "please subscribe to my channel",
+}
+_STOCK_STRIP = " 　。、.,!！?？…"
+
 
 def _whisper_language(language: str) -> str | None:
     """Maps our "auto" sentinel to None, which tells mlx_whisper to auto-detect
@@ -133,12 +155,18 @@ def transcribe_audio(
 
 
 def _looks_hallucinated(seg: dict) -> bool:
-    """A light guard that rejects low-confidence/repetitive segments as hallucinations."""
+    """A light guard that rejects low-confidence/repetitive segments and stock
+    phrases (see _STOCK_PHRASES) as hallucinations."""
     if seg.get("no_speech_prob", 0.0) > 0.6 and seg.get("avg_logprob", 0.0) < -1.0:
         return True
     if seg.get("compression_ratio", 0.0) > _MAX_COMPRESSION_RATIO:
         return True
-    return False
+    return is_stock_phrase(seg.get("text", ""))
+
+
+def is_stock_phrase(text: str) -> bool:
+    """Whether the whole text is one of the lines Whisper invents for silence."""
+    return text.strip(_STOCK_STRIP).lower() in _STOCK_PHRASES
 
 
 def track_vad_threshold(track: str) -> float:

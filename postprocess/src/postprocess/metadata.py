@@ -29,3 +29,10 @@ def load_session_meta(session_dir: Path) -> SessionMeta:
         counterpart_name=data.get("counterpartName", ""),  # schemaVersion 3+ / "" in older recordings
         ended_at=data.get("endedAt", ""),
     )
+
+
+def meeting_hint_terms(meta: SessionMeta) -> list[str]:
+    """The counterpart's name and the meeting title, to hint to Whisper ahead of
+    the dictionary's words: names in particular have many homophones, and these
+    are known before the meeting starts (typed in, or passed from OnCue)."""
+    return [term for term in (meta.counterpart_name.strip(), meta.title.strip()) if term and "\n" not in term]
