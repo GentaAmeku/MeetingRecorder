@@ -11,7 +11,7 @@ ASR runs locally with MLX Whisper (Apple Silicon). It never summarizes (that's a
 ## Stages (normalize -> transcribe -> diarize -> align -> cleanup)
 
 1. **normalize** — Converts each track to 16kHz mono float (system is downmixed) + light peak normalization.
-2. **transcribe** — Passes only the speech regions silero-vad finds to MLX Whisper (default `auto` language detection / `large-v3-turbo`), avoiding hallucinations from silence. mic uses a stricter VAD threshold.
+2. **transcribe** — Passes only the speech regions silero-vad finds to MLX Whisper (default `auto` language detection / `large-v3-turbo`), avoiding hallucinations from silence. mic uses a stricter VAD threshold. The counterpart's name, the meeting title and the [word dictionary](#word-dictionary)'s words go to Whisper as a prompt. Stock lines Whisper invents for silence (「ご視聴ありがとうございました」, "Thanks for watching") are dropped. Each segment's text is then tidied: full-width letters and punctuation normalized, standalone fillers removed, misheard spellings from the dictionary corrected, and a space put between Japanese and Latin words.
 3. **diarize** (speaker diarization for the other side) — Runs sherpa-onnx on `system.wav` to get speaker regions, attributes each utterance to whichever speaker overlaps it most, and assigns them to `Other A / Other B …` (in order of first appearance). mic is always self, so it's never a target. **Always on; falls back to a single "Other" if the model isn't installed or fails.**
 4. **align** — Merges each track's transcript by time and writes out `transcript.md` / `transcript.json` labeled self/other (A/B/…).
 5. **cleanup** — Once both `transcript.md` and `transcript.json` are saved, deletes the input `mic.wav` / `system.wav` by default. Kept when `--keep-source-audio` is given. Whether the index succeeded is never a deletion condition.
@@ -67,6 +67,29 @@ file doesn't exist, your name defaults to `Me` and the other side to `Other`.
 - `otherName` is the base name for the other side, used the same way. With a single other speaker it's shown as-is (e.g. `Other`); with multiple, a letter is appended per speaker (e.g. `Other A`, `Other B`). It's ignored for a 1-on-1 session where a counterpart name was set when recording (that real name is used instead). Falls back to `Other` under the same invalid-value rules as `selfName`.
 - `language` is the ASR language: `auto` (auto-detect) or a Whisper language code (e.g. `en`, `ja`). Falls back to `auto` when invalid. An explicit `--language` on the command line always overrides this.
 - Unknown keys are skipped when reading.
+- `dictionary` (a separate section) chooses the [word dictionary](#word-dictionary): `{"path": "~/words.json"}` reads another file, `{"enabled": false}` turns it off. Without the section, Tsuzuri's dictionary is used if it exists.
+
+### Word dictionary
+
+A word dictionary lists the words your meetings use and how they get misheard, so the transcript spells them your way. It uses the format of [Tsuzuri](https://github.com/GentaAmeku/Tsuzuri) (the same author's dictation app), and by default `~/Library/Application Support/Tsuzuri/dictionary.json` is read, so words added while dictating help meetings too. The file is only read, never written. Without it, transcription runs as before.
+
+```json
+{
+  "version": 1,
+  "entries": [
+    {"surface": "Claude Code", "from": ["クロードコード"], "hint": true, "pinned": false},
+    {"surface": "Vitest", "from": ["Bテスト"], "hint": true, "pinned": true}
+  ],
+  "fillers": ["えーと", "あのー"]
+}
+```
+
+- `surface` is how the word should be written; `from` lists the spellings Whisper produces instead.
+- **Hints**: words with `hint: true` go to Whisper's `initial_prompt` before transcription — the counterpart's name and the meeting title first, then pinned words, words added in the last 14 days and the most used in the last 30 days (from Tsuzuri's `usage.json` next to the dictionary), as many as fit in 200 tokens.
+- **Corrections**: after transcription, `from` spellings are replaced with `surface`. Where a replacement may apply is decided by the kind of characters at its ends, because Japanese has no spaces between words: a katakana spelling only when no katakana touches it, a Latin spelling only when no letter or digit touches it. Spellings with kanji or hiragana are never used (homophones are too common). A Latin `surface` written in another case is also corrected (PNPM → pnpm).
+- **Fillers**: `fillers` are removed only where they stand alone — at the start of a sentence or after 「、」, followed by 「、」 or a space.
+- `--dictionary <path>` reads another file for one run; `--no-dictionary` transcribes without it.
+- On the 40 test sentences from Tsuzuri's evaluation (one speaker, read into a MacBook microphone), the character error rate went from 13.5% to 4.6% and tech terms spelled correctly from 52% to 84%. Meeting audio — other people's voices, overlap, long conversations — may gain less.
 
 ### Model management (status check / download)
 

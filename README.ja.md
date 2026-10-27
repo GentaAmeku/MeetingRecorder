@@ -62,6 +62,7 @@
 - 全セッションのカタログ `index.json` を自動生成し、AI エージェントや自分が横断検索できるようにします。
 - **文字起こしの言語**: 設定に「Transcription language」の選択(Auto-detect / English / Japanese)があります。既定は Auto-detect で、MLX Whisper に話されている言語を自動判定させます。選ぶと `postprocess-config.json`(`transcript.language`)に書き込まれ、`postprocess` CLI を手元で実行したときもこの値をそのまま読みます。
 - **話者の呼び名**: Transcript では自分を "Me"、相手を "Other"(複数いる場合は "Other A" / "Other B" …)と呼びます。ただし録音開始時に相手の名前を入力した場合はその実名を使います。どちらの既定名も、以後生成する Transcript すべてに対して `postprocess-config.json` の `transcript.selfName` / `transcript.otherName` で変更できます。相手が複数いるときは呼び名の後ろに A / B … が付きます。呼び名が日本語で終わる場合は「相手A」のように空白なしでつなぎます。
+- **単語の辞書**: 会議で使う語(製品名・技術用語・人の名前)と、その聞き違いの形を辞書に書いておくと、Transcript でその語を自分の書く表記で出します(クロードコードではなく Claude Code)。語は文字にする前に Whisper へヒント(前置きの文)として渡し、それでも残った聞き違いは文字にしたあとで直します。相手の名前と会議名もヒントに入れます。辞書の形は、同じ作者の音声入力アプリ [Tsuzuri](https://github.com/GentaAmeku/Tsuzuri) と同じです。Tsuzuri を入れていれば、その辞書を自動で読みます(書き換えはしません)。ふだんの音声入力で足した語が、会議の文字起こしにも効きます。辞書が無ければ、これまでどおりに文字にします。詳しくは [postprocess/README.md](postprocess/README.md#word-dictionary)。
 - **設定ファイルの例**(`~/Documents/MeetingRecorder/postprocess-config.json`):
 
   ```json
@@ -71,6 +72,9 @@
       "selfName": "山田",
       "otherName": "相手",
       "language": "ja"
+    },
+    "dictionary": {
+      "path": "~/Library/Application Support/Tsuzuri/dictionary.json"
     }
   }
   ```
@@ -79,6 +83,7 @@
   - `otherName`: 相手の呼び名の元(既定 `Other`)。
   - `language`: 文字起こしの言語。`auto`(既定。自動判定)か、Whisper の言語コード(`en`、`ja` など)。`Japanese` のような言語名や大文字も受け付けます。対応していない値は `auto` に戻ります。
   - 自動判定は発話の区間ごとに行うため、「はい」のような短い発話が別の言語と判定されることがあります。会議の言語が決まっているなら、言語を指定するのがおすすめです。
+  - `dictionary.path`: 単語の辞書のファイル(既定は Tsuzuri の辞書)。`"dictionary": {"enabled": false}` にすると辞書を使いません。
 
 ### 任意: OnCue からの起動
 

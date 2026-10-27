@@ -121,6 +121,17 @@ outside it. The diagram is generated with
   [postprocess/README.md](postprocess/README.md#configuration-postprocess-configjson).
   Letters are appended with a space ("Other A"), or without one when the name
   ends in CJK script ("相手A").
+- **Word dictionary**: list the words your meetings use — product names, tech
+  terms, people — and the ways they get misheard, and the transcript spells
+  them the way you do (Claude Code, not クロードコード). The words are given to
+  Whisper as a prompt before it transcribes, and misheard spellings left over
+  are corrected afterwards. The counterpart's name and the meeting title are
+  hinted too. The dictionary uses the format of
+  [Tsuzuri](https://github.com/GentaAmeku/Tsuzuri), the same author's dictation
+  app: if Tsuzuri is installed, its dictionary is read (never written)
+  automatically, so a word added while dictating also helps meetings. Without
+  one, transcription runs as before. See
+  [postprocess/README.md](postprocess/README.md#word-dictionary).
 
 ### Optional: launch from OnCue
 
