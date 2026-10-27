@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from .align import LabeledSegment, assign_speakers, group_turns, merge_tracks
@@ -29,10 +30,12 @@ from .cleanup import (
 )
 from .config import DEFAULT_OTHER_NAME, DEFAULT_SELF_NAME, load_config, normalize_language
 from .diarize import DEFAULT_CLUSTER_THRESHOLD, DEFAULT_MODEL_DIR, diarize_system
+from .dictionary import Dictionary, load_dictionary, select_hints
 from .index import write_index
-from .metadata import load_session_meta
+from .metadata import load_session_meta, meeting_hint_terms
 from .render import render_json, render_markdown
 from .segments import Segment
+from .shaping import Shaper
 from .sessions import DEFAULT_RECORDINGS_ROOT, latest_session, pending_sessions
 from .transcribe import (
     DEFAULT_MODEL,
@@ -40,6 +43,7 @@ from .transcribe import (
     track_vad_threshold,
     transcribe_audio,
     transcribe_track,
+    whisper_prompt,
 )
 
 
@@ -54,8 +58,18 @@ def process_session(
     diarization_model_dir: Path = DEFAULT_MODEL_DIR,
     self_name: str = DEFAULT_SELF_NAME,
     other_name: str = DEFAULT_OTHER_NAME,
+    dictionary: Dictionary | None = None,
 ) -> tuple[Path, Path]:
     """Processes one session and writes out transcript.md / transcript.json."""
+
+    meta = load_session_meta(session_dir)
+    # The counterpart's name, the meeting title and the dictionary's words go
+    # to Whisper as a prompt, so it writes them the way they are spelled
+    # (Claude Code, not クロードコード).
+    hint_terms = meeting_hint_terms(meta)
+    if dictionary:
+        hint_terms += select_hints(dictionary, datetime.now().astimezone())
+    prompt = whisper_prompt(hint_terms)
 
     mic_wav = session_dir / "mic.wav"
     mic: list[Segment] = (
@@ -64,6 +78,7 @@ def process_session(
             language=language,
             model=model,
             vad_threshold=track_vad_threshold("mic"),
+            initial_prompt=prompt,
         )
         if mic_wav.exists()
         else []
@@ -72,18 +87,25 @@ def process_session(
     # system reuses the same normalized waveform for both transcription and diarization.
     # A session with a counterpart name declares itself 1-on-1 -> bypass diarization
     # (the single other side = that real name).
-    meta = load_session_meta(session_dir)
     effective_diarize = diarize and not meta.counterpart_name
+    # After recognition, tidy each segment and fix what the prompt didn't
+    # (ストーリーブック -> Storybook, PNPM -> pnpm). See shaping.py.
+    shaper = Shaper(dictionary)
+    mic = _shape_segments(mic, shaper)
 
     system_labeled: list[LabeledSegment] = []
     system_wav = session_dir / "system.wav"
     if system_wav.exists():
         system_audio = load_normalized(str(system_wav))
-        system_segs = transcribe_audio(
-            system_audio,
-            language=language,
-            model=model,
-            vad_threshold=track_vad_threshold("system"),
+        system_segs = _shape_segments(
+            transcribe_audio(
+                system_audio,
+                language=language,
+                model=model,
+                vad_threshold=track_vad_threshold("system"),
+                initial_prompt=prompt,
+            ),
+            shaper,
         )
         speakers = (
             diarize_system(
@@ -110,6 +132,12 @@ def process_session(
     )
     json_path.write_text(render_json(labeled), encoding="utf-8")
     return md_path, json_path
+
+
+def _shape_segments(segments: list[Segment], shaper: Shaper) -> list[Segment]:
+    """Tidies each segment's text; a segment left empty (only a filler) is dropped."""
+    shaped = (Segment(start=s.start, end=s.end, text=shaper.shape(s.text)) for s in segments)
+    return [s for s in shaped if s.text]
 
 
 def _resolve_targets(args: argparse.Namespace) -> list[Path]:
@@ -171,6 +199,20 @@ def main() -> None:
         ),
     )
     parser.add_argument("--model", default=DEFAULT_MODEL, help="MLX Whisper model")
+    parser.add_argument(
+        "--dictionary",
+        type=Path,
+        default=None,
+        help=(
+            "Word dictionary in Tsuzuri's format (default: the dictionary section of "
+            "postprocess-config.json, or Tsuzuri's own dictionary if it exists)"
+        ),
+    )
+    parser.add_argument(
+        "--no-dictionary",
+        action="store_true",
+        help="Transcribe without the word dictionary",
+    )
     parser.add_argument(
         "--no-diarize",
         dest="diarize",
@@ -330,6 +372,8 @@ def main() -> None:
         )
         raise SystemExit(2)
 
+    dictionary = _load_dictionary(args, cfg) if needs_transcription else None
+
     for session_dir, action in processable_actions:
         if action == "complete":
             print(
@@ -353,6 +397,7 @@ def main() -> None:
             diarization_model_dir=args.diarization_model_dir,
             self_name=cfg.self_name,
             other_name=cfg.other_name,
+            dictionary=dictionary,
         )
         print(f"[{session_dir.name}] wrote {md_path.name} / {json_path.name}")
         _finish_source_audio(
@@ -370,6 +415,22 @@ def main() -> None:
 
     if missing_audio:
         raise SystemExit(1)
+
+
+def _load_dictionary(args: argparse.Namespace, cfg) -> Dictionary | None:
+    """The word dictionary for this run: --no-dictionary, then --dictionary, then the config."""
+    if args.no_dictionary:
+        return None
+    path = args.dictionary if args.dictionary is not None else cfg.dictionary_path
+    if path is None:
+        return None
+    dictionary = load_dictionary(path)
+    if dictionary is None:
+        if args.dictionary is not None:
+            print(f"Note: the dictionary {path} could not be read; transcribing without it.", file=sys.stderr)
+        return None
+    print(f"Dictionary: {len(dictionary.entries)} word(s) from {path}")
+    return dictionary
 
 
 def _finish_source_audio(session_dir: Path, *, keep_source_audio: bool) -> None:

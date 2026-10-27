@@ -1,4 +1,4 @@
-"""Reading postprocess-config.json (display names, transcription language).
+"""Reading postprocess-config.json (display names, transcription language, word dictionary).
 
 Unknown keys are ignored (neither read nor written). Keys written by an older
 version keep working with their defaults if left in place.
@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
+
+from .dictionary import DEFAULT_DICTIONARY_PATH
 
 DEFAULT_CONFIG_PATH = Path.home() / "Documents" / "MeetingRecorder" / "postprocess-config.json"
 DEFAULT_SELF_NAME = "Me"
@@ -21,6 +23,9 @@ class PostprocessConfig:
     self_name: str = DEFAULT_SELF_NAME
     other_name: str = DEFAULT_OTHER_NAME
     language: str = DEFAULT_LANGUAGE
+    # The word dictionary (Tsuzuri's format). None turns it off. A path that
+    # doesn't exist is fine: transcription just runs without it.
+    dictionary_path: Path | None = DEFAULT_DICTIONARY_PATH
 
 
 def _parse_name(section: dict, key: str, default: str) -> str:
@@ -58,6 +63,22 @@ def _parse_language(section: dict) -> str:
     return normalize_language(section.get("language")) or DEFAULT_LANGUAGE
 
 
+def _parse_dictionary_path(data: dict) -> Path | None:
+    """The dictionary section: {"dictionary": {"enabled": false}} turns it off,
+    {"dictionary": {"path": "~/words.json"}} reads another file. Anything else
+    keeps the default (Tsuzuri's dictionary).
+    """
+    section = data.get("dictionary")
+    if not isinstance(section, dict):
+        return DEFAULT_DICTIONARY_PATH
+    if section.get("enabled") is False:
+        return None
+    raw = section.get("path")
+    if not isinstance(raw, str) or "\n" in raw or "\r" in raw or not raw.strip():
+        return DEFAULT_DICTIONARY_PATH
+    return Path(raw.strip()).expanduser()
+
+
 def parse_config(text: str) -> PostprocessConfig:
     """Parses the config JSON (pure logic). A missing key falls back to its
     default; an unknown key is ignored.
@@ -71,13 +92,15 @@ def parse_config(text: str) -> PostprocessConfig:
         return PostprocessConfig()
     if not isinstance(data, dict):
         return PostprocessConfig()
+    dictionary_path = _parse_dictionary_path(data)
     section = data.get("transcript", {})
     if not isinstance(section, dict):
-        return PostprocessConfig()
+        return PostprocessConfig(dictionary_path=dictionary_path)
     return PostprocessConfig(
         self_name=_parse_name(section, "selfName", DEFAULT_SELF_NAME),
         other_name=_parse_name(section, "otherName", DEFAULT_OTHER_NAME),
         language=_parse_language(section),
+        dictionary_path=dictionary_path,
     )
 
 
