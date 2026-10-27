@@ -35,6 +35,7 @@ from .index import write_index
 from .metadata import load_session_meta
 from .render import render_json, render_markdown
 from .segments import Segment
+from .shaping import Shaper
 from .sessions import DEFAULT_RECORDINGS_ROOT, latest_session, pending_sessions
 from .transcribe import (
     DEFAULT_MODEL,
@@ -83,17 +84,24 @@ def process_session(
     # A session with a counterpart name declares itself 1-on-1 -> bypass diarization
     # (the single other side = that real name).
     effective_diarize = diarize and not meta.counterpart_name
+    # After recognition, tidy each segment and fix what the prompt didn't
+    # (ストーリーブック -> Storybook, PNPM -> pnpm). See shaping.py.
+    shaper = Shaper(dictionary)
+    mic = _shape_segments(mic, shaper)
 
     system_labeled: list[LabeledSegment] = []
     system_wav = session_dir / "system.wav"
     if system_wav.exists():
         system_audio = load_normalized(str(system_wav))
-        system_segs = transcribe_audio(
-            system_audio,
-            language=language,
-            model=model,
-            vad_threshold=track_vad_threshold("system"),
-            initial_prompt=prompt,
+        system_segs = _shape_segments(
+            transcribe_audio(
+                system_audio,
+                language=language,
+                model=model,
+                vad_threshold=track_vad_threshold("system"),
+                initial_prompt=prompt,
+            ),
+            shaper,
         )
         speakers = (
             diarize_system(
@@ -120,6 +128,12 @@ def process_session(
     )
     json_path.write_text(render_json(labeled), encoding="utf-8")
     return md_path, json_path
+
+
+def _shape_segments(segments: list[Segment], shaper: Shaper) -> list[Segment]:
+    """Tidies each segment's text; a segment left empty (only a filler) is dropped."""
+    shaped = (Segment(start=s.start, end=s.end, text=shaper.shape(s.text)) for s in segments)
+    return [s for s in shaped if s.text]
 
 
 def _resolve_targets(args: argparse.Namespace) -> list[Path]:
