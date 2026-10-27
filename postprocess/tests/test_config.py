@@ -100,3 +100,21 @@ def test_language_is_normalized_and_validated():
     assert parse_config('{"transcript": {"language": "xx"}}').language == "auto"
     assert parse_config('{"transcript": {"language": "EN"}}').language == "en"
 
+
+
+def test_dictionary_defaults_to_tsuzuri():
+    from postprocess.dictionary import DEFAULT_DICTIONARY_PATH
+
+    assert parse_config("{}").dictionary_path == DEFAULT_DICTIONARY_PATH
+    assert parse_config('{"dictionary": "x"}').dictionary_path == DEFAULT_DICTIONARY_PATH
+
+
+def test_dictionary_can_be_turned_off_or_moved():
+    from pathlib import Path
+
+    assert parse_config('{"dictionary": {"enabled": false}}').dictionary_path is None
+    moved = parse_config('{"dictionary": {"path": "~/words.json"}}')
+    assert moved.dictionary_path == Path("~/words.json").expanduser()
+    # The transcript section keeps working alongside it.
+    both = parse_config('{"dictionary": {"enabled": false}, "transcript": {"selfName": "山田"}}')
+    assert both.self_name == "山田" and both.dictionary_path is None

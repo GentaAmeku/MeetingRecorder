@@ -7,6 +7,8 @@ to the original track's absolute time to produce the segment list.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
+
 import mlx_whisper
 import numpy as np
 
@@ -24,6 +26,9 @@ VAD_THRESHOLD = {"mic": 0.6, "system": 0.4}
 # A segment whose compression ratio exceeds this is treated as a repetitive hallucination and dropped.
 _MAX_COMPRESSION_RATIO = 2.4
 
+# Whisper keeps at most 223 tokens of prompt text. Stay inside it with room to spare.
+MAX_PROMPT_TOKENS = 200
+
 
 def _whisper_language(language: str) -> str | None:
     """Maps our "auto" sentinel to None, which tells mlx_whisper to auto-detect
@@ -32,12 +37,46 @@ def _whisper_language(language: str) -> str | None:
     return None if language == AUTO_LANGUAGE else language
 
 
+def build_prompt(
+    terms: Iterable[str],
+    count_tokens: Callable[[str], int],
+    max_tokens: int = MAX_PROMPT_TOKENS,
+) -> str | None:
+    """Joins hint words into one line for Whisper's initial_prompt (pure logic).
+
+    Words are taken in order and joined with 「、」; a word that would push the
+    line past `max_tokens` is skipped and later (shorter) words are still
+    tried, the same way Tsuzuri builds its WhisperKit prompt. Returns None when
+    there is nothing to hint.
+    """
+    prompt = ""
+    seen: set[str] = set()
+    for term in terms:
+        term = term.strip()
+        if not term or "\n" in term or term in seen:
+            continue
+        seen.add(term)
+        candidate = term if not prompt else f"{prompt}、{term}"
+        if count_tokens(" " + candidate) <= max_tokens:
+            prompt = candidate
+    return prompt or None
+
+
+def whisper_prompt(terms: Iterable[str]) -> str | None:
+    """build_prompt with Whisper's own multilingual tokenizer counting the tokens."""
+    from mlx_whisper.tokenizer import get_tokenizer
+
+    tokenizer = get_tokenizer(multilingual=True, num_languages=100, task="transcribe")
+    return build_prompt(terms, lambda text: len(tokenizer.encode(text)))
+
+
 def transcribe_track(
     path: str,
     *,
     language: str = AUTO_LANGUAGE,
     model: str = DEFAULT_MODEL,
     vad_threshold: float = 0.5,
+    initial_prompt: str | None = None,
 ) -> list[Segment]:
     """Transcribes one track's WAV and returns a chronological segment list."""
     return transcribe_audio(
@@ -45,6 +84,7 @@ def transcribe_track(
         language=language,
         model=model,
         vad_threshold=vad_threshold,
+        initial_prompt=initial_prompt,
     )
 
 
@@ -54,10 +94,13 @@ def transcribe_audio(
     language: str = AUTO_LANGUAGE,
     model: str = DEFAULT_MODEL,
     vad_threshold: float = 0.5,
+    initial_prompt: str | None = None,
 ) -> list[Segment]:
     """Transcribes an already-normalized (16kHz mono float) waveform.
 
     Kept separate from loading so the same system waveform can be reused for diarization.
+    `initial_prompt` (the dictionary's hint words) is given to every speech
+    region, so each one knows how the meeting's words are spelled.
     """
     regions = speech_regions(audio, sr=TARGET_SR, threshold=vad_threshold)
 
@@ -76,6 +119,7 @@ def transcribe_audio(
             logprob_threshold=-1.0,
             compression_ratio_threshold=_MAX_COMPRESSION_RATIO,
             temperature=0.0,
+            initial_prompt=initial_prompt,
         )
         chunk_segments = [
             Segment(start=s["start"], end=s["end"], text=s["text"].strip())

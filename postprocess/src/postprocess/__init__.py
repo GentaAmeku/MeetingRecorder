@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from .align import LabeledSegment, assign_speakers, group_turns, merge_tracks
@@ -29,6 +30,7 @@ from .cleanup import (
 )
 from .config import DEFAULT_OTHER_NAME, DEFAULT_SELF_NAME, load_config, normalize_language
 from .diarize import DEFAULT_CLUSTER_THRESHOLD, DEFAULT_MODEL_DIR, diarize_system
+from .dictionary import Dictionary, load_dictionary, select_hints
 from .index import write_index
 from .metadata import load_session_meta
 from .render import render_json, render_markdown
@@ -40,6 +42,7 @@ from .transcribe import (
     track_vad_threshold,
     transcribe_audio,
     transcribe_track,
+    whisper_prompt,
 )
 
 
@@ -54,8 +57,14 @@ def process_session(
     diarization_model_dir: Path = DEFAULT_MODEL_DIR,
     self_name: str = DEFAULT_SELF_NAME,
     other_name: str = DEFAULT_OTHER_NAME,
+    dictionary: Dictionary | None = None,
 ) -> tuple[Path, Path]:
     """Processes one session and writes out transcript.md / transcript.json."""
+
+    meta = load_session_meta(session_dir)
+    # The dictionary's words go to Whisper as a prompt, so it writes them the
+    # way they are spelled (Claude Code, not クロードコード).
+    prompt = whisper_prompt(select_hints(dictionary, datetime.now().astimezone())) if dictionary else None
 
     mic_wav = session_dir / "mic.wav"
     mic: list[Segment] = (
@@ -64,6 +73,7 @@ def process_session(
             language=language,
             model=model,
             vad_threshold=track_vad_threshold("mic"),
+            initial_prompt=prompt,
         )
         if mic_wav.exists()
         else []
@@ -72,7 +82,6 @@ def process_session(
     # system reuses the same normalized waveform for both transcription and diarization.
     # A session with a counterpart name declares itself 1-on-1 -> bypass diarization
     # (the single other side = that real name).
-    meta = load_session_meta(session_dir)
     effective_diarize = diarize and not meta.counterpart_name
 
     system_labeled: list[LabeledSegment] = []
@@ -84,6 +93,7 @@ def process_session(
             language=language,
             model=model,
             vad_threshold=track_vad_threshold("system"),
+            initial_prompt=prompt,
         )
         speakers = (
             diarize_system(
@@ -171,6 +181,20 @@ def main() -> None:
         ),
     )
     parser.add_argument("--model", default=DEFAULT_MODEL, help="MLX Whisper model")
+    parser.add_argument(
+        "--dictionary",
+        type=Path,
+        default=None,
+        help=(
+            "Word dictionary in Tsuzuri's format (default: the dictionary section of "
+            "postprocess-config.json, or Tsuzuri's own dictionary if it exists)"
+        ),
+    )
+    parser.add_argument(
+        "--no-dictionary",
+        action="store_true",
+        help="Transcribe without the word dictionary",
+    )
     parser.add_argument(
         "--no-diarize",
         dest="diarize",
@@ -330,6 +354,8 @@ def main() -> None:
         )
         raise SystemExit(2)
 
+    dictionary = _load_dictionary(args, cfg) if needs_transcription else None
+
     for session_dir, action in processable_actions:
         if action == "complete":
             print(
@@ -353,6 +379,7 @@ def main() -> None:
             diarization_model_dir=args.diarization_model_dir,
             self_name=cfg.self_name,
             other_name=cfg.other_name,
+            dictionary=dictionary,
         )
         print(f"[{session_dir.name}] wrote {md_path.name} / {json_path.name}")
         _finish_source_audio(
@@ -370,6 +397,22 @@ def main() -> None:
 
     if missing_audio:
         raise SystemExit(1)
+
+
+def _load_dictionary(args: argparse.Namespace, cfg) -> Dictionary | None:
+    """The word dictionary for this run: --no-dictionary, then --dictionary, then the config."""
+    if args.no_dictionary:
+        return None
+    path = args.dictionary if args.dictionary is not None else cfg.dictionary_path
+    if path is None:
+        return None
+    dictionary = load_dictionary(path)
+    if dictionary is None:
+        if args.dictionary is not None:
+            print(f"Note: the dictionary {path} could not be read; transcribing without it.", file=sys.stderr)
+        return None
+    print(f"Dictionary: {len(dictionary.entries)} word(s) from {path}")
+    return dictionary
 
 
 def _finish_source_audio(session_dir: Path, *, keep_source_audio: bool) -> None:
