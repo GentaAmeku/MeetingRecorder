@@ -12,7 +12,7 @@ ASR runs locally with MLX Whisper (Apple Silicon). It never summarizes (that's a
 
 1. **normalize** — Converts each track to 16kHz mono float (system is downmixed) + light peak normalization.
 2. **transcribe** — Passes only the speech regions silero-vad finds to MLX Whisper (default `auto` language detection / `large-v3-turbo`), avoiding hallucinations from silence. mic uses a stricter VAD threshold. The counterpart's name, the meeting title and the [word dictionary](#word-dictionary)'s words go to Whisper as a prompt. Stock lines Whisper invents for silence (「ご視聴ありがとうございました」, "Thanks for watching") are dropped. Each segment's text is then tidied: full-width letters and punctuation normalized, standalone fillers removed, misheard spellings from the dictionary corrected, and a space put between Japanese and Latin words.
-3. **diarize** (speaker diarization for the other side) — Runs sherpa-onnx on `system.wav` to get speaker regions, attributes each utterance to whichever speaker overlaps it most, and assigns them to `Other A / Other B …` (in order of first appearance). mic is always self, so it's never a target. **Always on; falls back to a single "Other" if the model isn't installed or fails.**
+3. **diarize** (speaker diarization for the other side) — Runs NVIDIA's Nemotron 3 Diarization (up to 8 speakers) on `system.wav` through speech.cpp's `speech diarize` command to get speaker regions, attributes each utterance to whichever speaker overlaps it most, and assigns them to `Other A / Other B …` (in order of first appearance). mic is always self, so it's never a target. **Always on; falls back to a single "Other" if speech.cpp or the model isn't installed, or the run fails.**
 4. **align** — Merges each track's transcript by time and writes out `transcript.md` / `transcript.json` labeled self/other (A/B/…).
 5. **cleanup** — Once both `transcript.md` and `transcript.json` are saved, deletes the input `mic.wav` / `system.wav` by default. Kept when `--keep-source-audio` is given. Whether the index succeeded is never a deletion condition.
 6. **index** — Fully rebuilds `recordings/index.json` (the catalog of every session) at the end of each run. An agent can search across sessions in two steps: "read the index -> read the transcript of whichever session it needs".
@@ -43,7 +43,7 @@ uv run postprocess --delete-transcribed-audio # batch-delete audio from existing
 - `--all-pending` is an idempotent entry point that only processes sessions missing `transcript.md` or `transcript.json`. It can be triggered later by a local `launchd` job for automation (a cloud schedule can't reach the local GPU/files).
 - `--keep-source-audio` explicitly keeps the input audio for the sessions processed in that run. Without it, both Transcripts are saved and then the audio is deleted as before.
 - Re-running on a session that already has both Transcripts but no audio succeeds as already-processed. If audio deletion stopped partway and only one file remains, that one is deleted without overwriting the Transcript.
-- Speaker diarization: on by default. `--speakers N` fixes the number of people on the other side (default -1 = auto-estimate), `--no-diarize` disables it, `--diarization-model-dir` overrides where the model lives.
+- Speaker diarization: on by default, and the model finds the number of people on the other side by itself (up to 8). `--no-diarize` disables it, and `--speech-bin` points at speech.cpp's `speech` command when it isn't on PATH, in `~/.local/bin`, `/opt/homebrew/bin` or `/usr/local/bin`.
 - `--sync` is the recovery entry point for when index.json is missing or stale (idempotent: full scan -> full rewrite). The index is a derived artifact; the source of truth is each session's `metadata.json` / `transcript.*`.
 
 ### Configuration: postprocess-config.json
@@ -102,15 +102,16 @@ uv run postprocess --download-models --only whisper     # download only Whisper 
 uv run postprocess --download-models --only diarization # download only speaker diarization
 ```
 
-- Status is one of `missing / downloading / ready / error`. Whisper is judged by the completeness of the HF cache; speaker diarization by whether its 2 files are present.
+- Status is one of `missing / downloading / ready / error`. Whisper is judged by the completeness of the HF cache; speaker diarization by whether speech.cpp is installed and `speech models --json` reports `nemotron-3-diarization` as fetched. The diarization model is fetched with `speech pull` and removed with `speech rm`, so it lives in speech.cpp's own model folder (`~/Library/Caches/speech.cpp/models`).
 - **Prevents implicit downloads**: running transcription while Whisper isn't downloaded stops with "run `--download-models --only whisper` first" (exit 2), instead of silently pulling down 1.5GB.
 
 ### Getting the speaker-diarization model (manual fallback)
 
-Splitting the other side into `Other A / Other B …` needs the sherpa-onnx models (~45MB total, no HuggingFace login required). **It still works without them** (falling back to a single "Other"). `--download-models --only diarization` above is the primary path, but you can also fetch it with bash:
+Splitting the other side into `Other A / Other B …` needs [speech.cpp](https://github.com/nyosegawa/speech.cpp) and its `nemotron-3-diarization` model (~106MB, no Hugging Face login required). **It still works without them** (falling back to a single "Other"), and transcription never fetches the model on its own. `--download-models --only diarization` above is the primary path, but you can also fetch it with speech.cpp itself:
 
 ```sh
-scripts/download_diarization_models.sh    # default: ~/Documents/MeetingRecorder/models/diarization
+curl -fsSL https://raw.githubusercontent.com/nyosegawa/speech.cpp/main/install.sh | sh   # install speech.cpp
+speech pull nemotron-3-diarization
 ```
 
 Prerequisite: **use earphones** (to keep the other side's voice from leaking into the mic).

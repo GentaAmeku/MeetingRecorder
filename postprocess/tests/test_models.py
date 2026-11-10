@@ -27,7 +27,7 @@ def test_model_status_has_two_known_models():
 def test_model_status_fields():
     by_id = {m.id: m for m in model_status()}
     assert by_id[WHISPER_ID].size_label == "~1.5GB"
-    assert by_id[DIARIZATION_ID].size_label == "~45MB"
+    assert by_id[DIARIZATION_ID].size_label == "~106MB"
     for m in by_id.values():
         assert m.state in _VALID_STATES
         assert m.name  # has a display name

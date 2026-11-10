@@ -8,6 +8,7 @@
 - Xcode 26 以降(App Store または developer.apple.com)。macOS SDK を含む。Xcode 26.4 で確認。
 - Xcode に追加した Apple ID(Xcode → Settings → Accounts)。無料の Personal Team でローカルビルド・自分の Mac での実行には十分です。
 - 文字起こしを使う場合: Apple Silicon、および [uv](https://docs.astral.sh/uv/)(`brew install uv` など)。
+- 相手側の人を分ける場合(任意): [speech.cpp](https://github.com/nyosegawa/speech.cpp)。手順5を参照。
 
 ## 2. クローン
 
@@ -86,14 +87,20 @@ defaults delete <prefix>.MeetingRecorder postprocessCLIPathOverride
 続けて、アプリから **⚙(設定) →「Download Models…」**。以下を取得します:
 
 - **Whisper**(`mlx-community/whisper-large-v3-turbo`、約1.5GB)— 文字起こしに必須。
-- **話者分離**(sherpa-onnx の pyannote-segmentation-3.0 + 3D-Speaker ERes2Net、合計約45MB)— 任意。無くても動作し、その場合は相手全員が1人の「Other」(`otherName` を設定していればその呼び名)として扱われます。
+- **話者分離**(NVIDIA の Nemotron 3 Diarization、約106MB)— 任意。相手側の最大8人を分けます。無くても動作し、その場合は相手全員が1人の「Other」(`otherName` を設定していればその呼び名)として扱われます。
 
-各モデルのライセンスは [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) にまとめています。Hugging Face 上の元モデル `pyannote/segmentation-3.0` はログイン・利用条件への同意が必要なゲート付きモデルですが、このアプリは話者分離モデルの取得で Hugging Face に一切アクセスしません — アプリ内DL・下の手動スクリプトのどちらも、同じ重みを ONNX 変換した `sherpa-onnx` 自身の GitHub リリースから取得するため、話者分離に関しては Hugging Face アカウントは不要です。
-
-話者分離モデルだけを手動で取得したい場合(この2ファイルは Hugging Face ログイン不要):
+話者分離は [speech.cpp](https://github.com/nyosegawa/speech.cpp) の `speech` コマンドで動かすので、これを別に入れます。実行ファイル1つで、Python も CUDA も要らず、Mac の GPU で動きます。話者分離のモデルを取得する前に入れてください:
 
 ```sh
-scripts/download_diarization_models.sh
+curl -fsSL https://raw.githubusercontent.com/nyosegawa/speech.cpp/main/install.sh | sh
+```
+
+アプリは `speech` を PATH から探し、見つからなければ `~/.local/bin`(上のインストーラーの置き場所)・`/opt/homebrew/bin`・`/usr/local/bin` を探します。モデルは `speech pull` で speech.cpp 自身のモデルの置き場所(`~/Library/Caches/speech.cpp/models`)に、ゲートの無い Hugging Face のリポジトリから取得するため、Hugging Face アカウントは不要です。文字起こしのときに勝手に取得することはなく、取得するまでは相手側が1人の「Other」のままです。各モデルのライセンスは [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) にまとめています。
+
+話者分離のモデルだけを手動で取得したい場合:
+
+```sh
+speech pull nemotron-3-diarization
 ```
 
 ## 6. 権限を許可する

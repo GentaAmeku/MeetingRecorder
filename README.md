@@ -41,8 +41,8 @@ source audio is deleted by default (you can opt to keep it).
   the meeting title and the other person's name are filled in for you.
 - Your microphone and the meeting audio are recorded as separate tracks, so
   the transcript always knows which side spoke.
-- Transcription (MLX Whisper) and speaker separation (sherpa-onnx) run on
-  this Mac. The audio never leaves it.
+- Transcription (MLX Whisper) and speaker separation (NVIDIA's Nemotron 3
+  Diarization, run by speech.cpp) run on this Mac. The audio never leaves it.
 - You get a conversation log split into "me / other A / other B" in Markdown
   and JSON, plus an index of every session, ready to hand to an AI agent.
 - Once the transcript is saved, the source audio is deleted by default. What
@@ -53,7 +53,7 @@ source audio is deleted by default (you can opt to keep it).
 ## How it works
 
 <p align="center">
-  <img src="assets/architecture.png" alt="Architecture: MeetingRecorder records the mic and system audio with ScreenCaptureKit into two WAV files; after Stop, the postprocess CLI runs MLX Whisper and sherpa-onnx and writes transcript.md, transcript.json and index.json, all on your Mac; optionally OnCue pre-fills the meeting and Claude Code or Codex receives the transcript path">
+  <img src="assets/architecture.png" alt="Architecture: MeetingRecorder records the mic and system audio with ScreenCaptureKit into two WAV files; after Stop, the postprocess CLI runs MLX Whisper and Nemotron 3 Diarization (speech.cpp) and writes transcript.md, transcript.json and index.json, all on your Mac; optionally OnCue pre-fills the meeting and Claude Code or Codex receives the transcript path">
 </p>
 
 Recording, transcription and speaker separation all run inside the
@@ -101,8 +101,9 @@ outside it. The diagram is generated with
   files" in Settings to keep them instead. This is deliberate: this project
   treats the transcript, not the raw recording, as what you actually need
   once it exists.
-- When there's more than one person on the other side, **sherpa-onnx**
-  separates them into "Other A / Other B …".
+- When there's more than one person on the other side, **Nemotron 3
+  Diarization** (run by [speech.cpp](https://github.com/nyosegawa/speech.cpp),
+  installed separately) separates up to 8 of them into "Other A / Other B …".
 - A per-machine `index.json` catalogs every session so an AI agent (or you)
   can search across all of them.
 - **Transcription language**: Settings has a "Transcription language" picker
@@ -200,6 +201,8 @@ sends it a prompt. MeetingRecorder itself only passes the transcript's
   of mic + system audio together).
 - To transcribe: Apple Silicon (MLX runs on the GPU) and
   [uv](https://docs.astral.sh/uv/).
+- To separate speakers on the other side (optional):
+  [speech.cpp](https://github.com/nyosegawa/speech.cpp).
 - Xcode 26 or later to build the app, tested with Xcode 26.4. There is no signed release build —
   see [SETUP.md](SETUP.md).
 

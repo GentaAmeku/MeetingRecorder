@@ -35,7 +35,7 @@ final class ModelCoordinator {
     /// Whisper = required, speaker diarization = optional. Starts as unknown.
     private(set) var models: [Model] = [
         Model(id: "whisper", name: "Whisper (large-v3-turbo)", sizeLabel: "~1.5GB", state: .unknown),
-        Model(id: "diarization", name: "Speaker diarization (sherpa-onnx)", sizeLabel: "~45MB", state: .unknown),
+        Model(id: "diarization", name: "Speaker diarization (Nemotron 3)", sizeLabel: "~106MB", state: .unknown),
     ]
 
     /// Whether the CLI (external venv) can be found. Shows setup guidance when false.

@@ -6,8 +6,10 @@ in progress. Status is one of 4 values: missing/downloading/ready/error.
 - Whisper: judged by the completeness of the HF cache (tries the same
   snapshot_download as mlx_whisper with local_files_only). This avoids
   mistaking an incomplete download for ready just because the directory exists.
-- Speaker diarization (sherpa-onnx): judged by the presence of its 2 files
-  (diarize.models_present).
+- Speaker diarization (Nemotron 3 via speech.cpp): judged by whether the
+  `speech` command is installed and reports the model as fetched
+  (diarize.models_present). Fetching and removing go through `speech pull` /
+  `speech rm`, so the file lives in speech.cpp's own model folder.
 
 Download progress is streamed to stdout as JSON Lines, which the caller (the
 recording app) turns into a % bar.
@@ -16,29 +18,24 @@ recording app) turns into a % bar.
 from __future__ import annotations
 
 import json
-import sys
-import tarfile
-import tempfile
-import urllib.request
+import re
+import subprocess
 from dataclasses import asdict, dataclass
-from pathlib import Path
 
-from .diarize import (
-    DEFAULT_MODEL_DIR as DIARIZATION_MODEL_DIR,
-    EMBEDDING_MODEL,
-    SEGMENTATION_MODEL,
-    models_present,
-)
+from .diarize import MODEL_NAME as DIARIZATION_MODEL_NAME
+from .diarize import find_speech, models_present
 from .transcribe import DEFAULT_MODEL as WHISPER_REPO
 
 WHISPER_ID = "whisper"
 DIARIZATION_ID = "diarization"
 
-# Speaker-diarization models (sherpa-onnx public release, no HF login needed).
-_SEG_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2"
-_EMB_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx"
-# Progress denominator (seg tar ~6.8MB + emb ~39.6MB).
-_DIA_TOTAL_BYTES = 46_500_000
+# What `speech pull` prints to stderr while fetching, e.g. "  98 MB of 106 MB, 92%, 23.4 MB/s".
+_PULL_PROGRESS = re.compile(r"(\d+(?:\.\d+)?) MB of (\d+(?:\.\d+)?) MB, (\d+)%")
+
+SPEECH_MISSING_MESSAGE = (
+    "speech.cpp is not installed (the `speech` command was not found). "
+    "Install it as SETUP.md describes, then download again."
+)
 
 
 @dataclass(frozen=True)
@@ -73,8 +70,8 @@ def model_status() -> list[ModelStatus]:
         ),
         ModelStatus(
             DIARIZATION_ID,
-            "Speaker diarization (sherpa-onnx)",
-            "~45MB",
+            "Speaker diarization (Nemotron 3)",
+            "~106MB",
             "ready" if models_present() else "missing",
         ),
     ]
@@ -126,12 +123,13 @@ def delete_model(model_id: str) -> int:
             if hashes:
                 cache.delete_revisions(*hashes).execute()
         elif model_id == DIARIZATION_ID:
-            import shutil
-
-            shutil.rmtree(
-                DIARIZATION_MODEL_DIR / SEGMENTATION_MODEL.parent, ignore_errors=True
-            )
-            (DIARIZATION_MODEL_DIR / EMBEDDING_MODEL).unlink(missing_ok=True)
+            speech = find_speech()
+            if speech is not None:
+                subprocess.run(
+                    [str(speech), "rm", DIARIZATION_MODEL_NAME],
+                    capture_output=True,
+                    check=True,
+                )
         else:
             _emit({"model": model_id, "state": "error", "message": "unknown model"})
             return 1
@@ -177,45 +175,52 @@ def _download_whisper() -> None:
 
 
 def _download_diarization() -> None:
-    """Downloads the sherpa-onnx models to the default path (streamed via urllib, with progress)."""
-    DIARIZATION_MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    """Fetches the model with `speech pull`, turning its stderr progress into JSON Lines."""
+    speech = find_speech()
+    if speech is None:
+        raise RuntimeError(SPEECH_MISSING_MESSAGE)
     _emit({"model": DIARIZATION_ID, "state": "downloading", "pct": 0})
-    done = [0]  # cumulative bytes (shared via closure)
-
-    def _progress(chunk: int) -> None:
-        done[0] += chunk
-        pct = int(done[0] * 100 / _DIA_TOTAL_BYTES)
-        _emit({
-            "model": DIARIZATION_ID,
-            "state": "downloading",
-            "pct": max(0, min(99, pct)),
-            "downloaded_mb": round(done[0] / 1_000_000),
-            "total_mb": round(_DIA_TOTAL_BYTES / 1_000_000),
-        })
-
-    # segmentation (tar.bz2 -> extracted)
-    seg_dir = DIARIZATION_MODEL_DIR / SEGMENTATION_MODEL.parent
-    if not (DIARIZATION_MODEL_DIR / SEGMENTATION_MODEL).exists():
-        with tempfile.NamedTemporaryFile(suffix=".tar.bz2", delete=True) as tmp:
-            _stream_to_file(_SEG_URL, Path(tmp.name), _progress)
-            with tarfile.open(tmp.name, "r:bz2") as tar:
-                tar.extractall(DIARIZATION_MODEL_DIR)
-        if not (DIARIZATION_MODEL_DIR / SEGMENTATION_MODEL).exists():
-            raise RuntimeError(f"Failed to extract segmentation: {seg_dir}")
-
-    # embedding (a single .onnx)
-    emb_path = DIARIZATION_MODEL_DIR / EMBEDDING_MODEL
-    if not emb_path.exists():
-        _stream_to_file(_EMB_URL, emb_path, _progress)
+    proc = subprocess.Popen(
+        [str(speech), "pull", DIARIZATION_MODEL_NAME],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+    )
+    assert proc.stderr is not None
+    tail = ""  # the last progress-free text, for the error message
+    buffer = b""
+    while True:
+        chunk = proc.stderr.read1(4096)
+        if not chunk:
+            break
+        buffer += chunk
+        # Progress lines end with \r (redrawn in place) or \n.
+        *lines, buffer = re.split(rb"[\r\n]", buffer)
+        for raw in lines:
+            tail = _take_pull_text(raw, tail)
+    tail = _take_pull_text(buffer, tail)
+    if proc.wait() != 0:
+        raise RuntimeError(tail or f"speech pull {DIARIZATION_MODEL_NAME} failed")
 
 
-def _stream_to_file(url: str, dest: Path, progress) -> None:
-    """Streams a URL to dest, calling progress(bytes) for each chunk."""
-    req = urllib.request.Request(url, headers={"User-Agent": "MeetingRecorder"})
-    with urllib.request.urlopen(req) as resp, open(dest, "wb") as out:
-        while True:
-            chunk = resp.read(1 << 16)
-            if not chunk:
-                break
-            out.write(chunk)
-            progress(len(chunk))
+def _take_pull_text(raw: bytes, tail: str) -> str:
+    """Emits progress for one piece of `speech pull` stderr; returns the latest non-progress text."""
+    text = raw.decode("utf-8", "replace").strip()
+    if text and not _emit_pull_progress(text):
+        return text
+    return tail
+
+
+def _emit_pull_progress(text: str) -> bool:
+    """Emits one progress line for a `speech pull` progress text. False if the text isn't progress."""
+    m = _PULL_PROGRESS.search(text)
+    if not m:
+        return False
+    done_mb, total_mb, pct = float(m.group(1)), float(m.group(2)), int(m.group(3))
+    _emit({
+        "model": DIARIZATION_ID,
+        "state": "downloading",
+        "pct": max(0, min(99, pct)),
+        "downloaded_mb": round(done_mb),
+        "total_mb": round(total_mb),
+    })
+    return True
