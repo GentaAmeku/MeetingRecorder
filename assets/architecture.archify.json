@@ -108,7 +108,7 @@
     {
       "id": "diarize",
       "type": "backend",
-      "label": "sherpa-onnx",
+      "label": "Nemotron 3",
       "sublabel": "who spoke when",
       "pos": [
         840,
@@ -242,7 +242,7 @@
       "dot": "emerald",
       "title": "Transcribe locally",
       "items": [
-        "MLX Whisper and sherpa-onnx run on Apple silicon",
+        "MLX Whisper and Nemotron 3 (speech.cpp) run on Apple silicon",
         "Me / Other A / Other B speaker labels",
         "Source audio is deleted once the transcript is saved"
       ]

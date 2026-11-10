@@ -26,7 +26,7 @@
 
 - ワンクリックで録音を始められる。[OnCue](https://github.com/GentaAmeku/OnCue) から開けば、会議名と相手の名前も自動で入る
 - 自分のマイクと会議の音声を別々に録るので、文字起こしで「どちらが話したか」を取り違えない
-- 文字起こし(MLX Whisper)と話者分離(sherpa-onnx)はこの Mac の中で行う。音声は外に出ない
+- 文字起こし(MLX Whisper)と話者分離(NVIDIA の Nemotron 3 Diarization を speech.cpp で動かす)はこの Mac の中で行う。音声は外に出ない
 - 「自分/相手A/相手B」(既定の呼び名は Me / Other A / Other B)に分かれた会話ログ(Markdown と JSON)と、全会議の索引ができ、そのまま AI エージェントに渡せる
 - 文字起こしが保存されると、元の音声は既定で自動的に消える。残るのは文字だけ
 - 文字起こしのあとに Claude Code / Codex へ自動で渡せるので、要約や整理をエージェントに任せられる
@@ -34,7 +34,7 @@
 ## 仕組み
 
 <p align="center">
-  <img src="assets/architecture.png" alt="仕組みの図。MeetingRecorder が ScreenCaptureKit でマイクとシステム音声を2つの WAV に録り、停止後に postprocess CLI が MLX Whisper と sherpa-onnx で transcript.md・transcript.json・index.json を作る。ここまではすべて Mac の中。任意で OnCue が会議の情報を渡し、Claude Code か Codex が文字起こしの場所を受け取る">
+  <img src="assets/architecture.png" alt="仕組みの図。MeetingRecorder が ScreenCaptureKit でマイクとシステム音声を2つの WAV に録り、停止後に postprocess CLI が MLX Whisper と Nemotron 3 Diarization(speech.cpp)で transcript.md・transcript.json・index.json を作る。ここまではすべて Mac の中。任意で OnCue が会議の情報を渡し、Claude Code か Codex が文字起こしの場所を受け取る">
 </p>
 
 録音・文字起こし・話者分離は、すべて「Stays on your Mac」の枠の中で行います。枠の外に出るのは、任意の AI エージェントへの引き継ぎだけです。図は [Archify](https://github.com/tt-a1i/archify) で [`assets/architecture.archify.json`](assets/architecture.archify.json) から作っています。
@@ -58,7 +58,7 @@
 - 録音停止後、常に**ローカルの MLX Whisper** で自動的に文字起こし(初回はモデルのダウンロードが必要)。モデル未DLなど実行できないときは、その旨を画面で案内します。
 - 自分/相手を区別した会話ログ `transcript.md`(`[MM:SS] Me: …` / `[MM:SS] Other: …`)と、構造化された `transcript.json` を出力。
 - **両 Transcript の保存に成功すると、入力の `mic.wav` / `system.wav` を既定で自動削除**します。設定の「Keep the original audio files」をオンにすると保持できます。これは意図した設計です — 録音の実体ではなく、そこから作った Transcript が残っていれば十分、という考え方です。
-- 会議相手が複数いる場合は **sherpa-onnx で話者分離**し、「Other A / Other B …」に振り分けます。
+- 会議相手が複数いる場合は **Nemotron 3 Diarization で話者分離**し、最大8人まで「Other A / Other B …」に振り分けます。動かすには [speech.cpp](https://github.com/nyosegawa/speech.cpp) を別に入れます。
 - 全セッションのカタログ `index.json` を自動生成し、AI エージェントや自分が横断検索できるようにします。
 - **文字起こしの言語**: 設定に「Transcription language」の選択(Auto-detect / English / Japanese)があります。既定は Auto-detect で、MLX Whisper に話されている言語を自動判定させます。選ぶと `postprocess-config.json`(`transcript.language`)に書き込まれ、`postprocess` CLI を手元で実行したときもこの値をそのまま読みます。
 - **話者の呼び名**: Transcript では自分を "Me"、相手を "Other"(複数いる場合は "Other A" / "Other B" …)と呼びます。ただし録音開始時に相手の名前を入力した場合はその実名を使います。どちらの既定名も、以後生成する Transcript すべてに対して `postprocess-config.json` の `transcript.selfName` / `transcript.otherName` で変更できます。相手が複数いるときは呼び名の後ろに A / B … が付きます。呼び名が日本語で終わる場合は「相手A」のように空白なしでつなぎます。
@@ -111,6 +111,7 @@
 
 - **macOS 15.6 (Sequoia) 以降**(ScreenCaptureKit の単一ストリームでマイクとシステム音声を同時取得するため)。
 - 文字起こしを使う場合: Apple Silicon(MLX の GPU 実行)と [uv](https://docs.astral.sh/uv/)。
+- 相手側の話者を分ける場合(任意): [speech.cpp](https://github.com/nyosegawa/speech.cpp)。
 - ビルドには Xcode 26 以降が必要です(Xcode 26.4 で確認)。署名済みのリリースビルドはありません([SETUP.ja.md](SETUP.ja.md) 参照)。
 
 ### 必要な権限

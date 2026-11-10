@@ -29,7 +29,8 @@ from .cleanup import (
     session_action,
 )
 from .config import DEFAULT_OTHER_NAME, DEFAULT_SELF_NAME, load_config, normalize_language
-from .diarize import DEFAULT_CLUSTER_THRESHOLD, DEFAULT_MODEL_DIR, diarize_system
+from .diarize import MODEL_NAME as DIARIZATION_MODEL_NAME
+from .diarize import diarize_system
 from .dictionary import Dictionary, load_dictionary, select_hints
 from .index import write_index
 from .metadata import load_session_meta, meeting_hint_terms
@@ -53,9 +54,7 @@ def process_session(
     language: str,
     model: str,
     diarize: bool = True,
-    num_speakers: int = -1,
-    cluster_threshold: float = DEFAULT_CLUSTER_THRESHOLD,
-    diarization_model_dir: Path = DEFAULT_MODEL_DIR,
+    speech_bin: Path | None = None,
     self_name: str = DEFAULT_SELF_NAME,
     other_name: str = DEFAULT_OTHER_NAME,
     dictionary: Dictionary | None = None,
@@ -108,13 +107,7 @@ def process_session(
             shaper,
         )
         speakers = (
-            diarize_system(
-                system_audio,
-                TARGET_SR,
-                model_dir=diarization_model_dir,
-                num_speakers=num_speakers,
-                cluster_threshold=cluster_threshold,
-            )
+            diarize_system(system_audio, TARGET_SR, speech_bin=speech_bin)
             if effective_diarize
             else None
         )
@@ -220,25 +213,13 @@ def main() -> None:
         help="Disable speaker diarization for the other side (always output a single \"Other\")",
     )
     parser.add_argument(
-        "--speakers",
-        type=int,
-        default=-1,
-        help="Fix the number of people on the other side (default -1 = auto-estimate)",
-    )
-    parser.add_argument(
-        "--cluster-threshold",
-        type=float,
-        default=DEFAULT_CLUSTER_THRESHOLD,
-        help=(
-            "Clustering threshold for auto-estimating speakers. Higher merges more into the "
-            f"same speaker (default {DEFAULT_CLUSTER_THRESHOLD})"
-        ),
-    )
-    parser.add_argument(
-        "--diarization-model-dir",
+        "--speech-bin",
         type=Path,
-        default=DEFAULT_MODEL_DIR,
-        help="Where the speaker-diarization model lives (default: ~/Documents/MeetingRecorder/models/diarization)",
+        default=None,
+        help=(
+            "speech.cpp's `speech` command, used for speaker diarization (default: found on "
+            "PATH, then ~/.local/bin, /opt/homebrew/bin and /usr/local/bin)"
+        ),
     )
     parser.add_argument(
         "--model-status",
@@ -353,12 +334,13 @@ def main() -> None:
     if (
         needs_transcription
         and args.diarize
-        and not diarize_system_available(args.diarization_model_dir)
+        and not diarize_system_available(args.speech_bin)
     ):
         print(
-            "Note: the speaker-diarization model was not found. The other side will be "
-            "output as a single \"Other\" bucket. "
-            "(Download the model with: scripts/download_diarization_models.sh)",
+            "Note: speaker diarization is unavailable (speech.cpp's `speech` command or its "
+            f"{DIARIZATION_MODEL_NAME} model was not found). The other side will be output as "
+            "a single \"Other\" bucket. (Install speech.cpp as SETUP.md describes, then run: "
+            "postprocess --download-models --only diarization)",
             file=sys.stderr,
         )
 
@@ -392,9 +374,7 @@ def main() -> None:
             language=language,
             model=args.model,
             diarize=args.diarize,
-            num_speakers=args.speakers,
-            cluster_threshold=args.cluster_threshold,
-            diarization_model_dir=args.diarization_model_dir,
+            speech_bin=args.speech_bin,
             self_name=cfg.self_name,
             other_name=cfg.other_name,
             dictionary=dictionary,
@@ -456,11 +436,11 @@ def _delete_audio_or_exit(session_dir: Path) -> None:
     print(f"[{session_dir.name}] deleted {len(deleted)} source audio file(s)")
 
 
-def diarize_system_available(model_dir: Path) -> bool:
-    """For the CLI startup notice: whether the diarization models are present."""
+def diarize_system_available(speech_bin: Path | None) -> bool:
+    """For the CLI startup notice: whether speech.cpp and its diarization model are present."""
     from .diarize import models_present
 
-    return models_present(model_dir)
+    return models_present(speech_bin)
 
 
 def _whisper_ready() -> bool:

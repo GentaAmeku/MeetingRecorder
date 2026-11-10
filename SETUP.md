@@ -12,6 +12,8 @@ coding agent. [SETUP.ja.md](SETUP.ja.md) has the same steps in Japanese.
   Team is enough for local builds and running the app on your own Mac.
 - To use transcription: Apple Silicon, plus [uv](https://docs.astral.sh/uv/)
   (`brew install uv` or see uv's own install docs).
+- To tell people on the other side apart (optional):
+  [speech.cpp](https://github.com/nyosegawa/speech.cpp) — see step 5.
 
 ## 2. Clone
 
@@ -121,21 +123,33 @@ Then, from the app: **⚙ (Settings) → "Download Models…"**. This downloads:
 
 - **Whisper** (`mlx-community/whisper-large-v3-turbo`, ~1.5GB) — required
   for any transcription.
-- **Speaker separation** (sherpa-onnx's pyannote-segmentation-3.0 +
-  3D-Speaker ERes2Net models, ~45MB total) — optional; without it, every
-  participant on the other side is rendered as a single "Other" (or your `otherName`).
+- **Speaker separation** (NVIDIA's Nemotron 3 Diarization, ~106MB) —
+  optional; it tells apart up to 8 people on the other side. Without it,
+  every participant on the other side is rendered as a single "Other" (or
+  your `otherName`).
 
-See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for each model's
-license. The upstream `pyannote/segmentation-3.0` model on Hugging Face is
-gated (login + accepting its terms), but this app never talks to Hugging
-Face for it — both the in-app downloader and the script below fetch the
-same weights, converted to ONNX, from `sherpa-onnx`'s own GitHub release
-assets, so no Hugging Face account is needed for diarization at all.
-
-If you'd rather fetch the speaker-separation models by hand:
+Speaker separation runs through the `speech` command of
+[speech.cpp](https://github.com/nyosegawa/speech.cpp), which you install
+separately: one executable, no Python or CUDA, running on the Mac's GPU.
+Install it before downloading the speaker-separation model:
 
 ```sh
-scripts/download_diarization_models.sh
+curl -fsSL https://raw.githubusercontent.com/nyosegawa/speech.cpp/main/install.sh | sh
+```
+
+The app looks for `speech` on your PATH, then in `~/.local/bin` (where that
+installer puts it), `/opt/homebrew/bin` and `/usr/local/bin`. The model is
+fetched with `speech pull` into speech.cpp's own model folder
+(`~/Library/Caches/speech.cpp/models`) from an ungated Hugging Face
+repository, so no Hugging Face account is needed. Transcription never
+fetches it on its own: until it's downloaded, the other side stays a single
+"Other". See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for each
+model's license.
+
+If you'd rather fetch the speaker-separation model by hand:
+
+```sh
+speech pull nemotron-3-diarization
 ```
 
 ## 6. Grant permissions
